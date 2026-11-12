@@ -1,4 +1,5 @@
-import { parseChord, NOTE_NAMES, TUNINGS } from './analyze.js';
+import { parseChord, NOTE_NAMES, TUNINGS, liveChord } from './analyze.js';
+import { parseChordSheet, looksLikeChordSheet } from './sheet.js';
 import { chordSVG, displayChord, capoSuggestion } from './chords.js';
 import { Player, audioCtx } from './player.js';
 import { SONGBOOK, chartToSong } from './songbook.js';
@@ -105,6 +106,8 @@ function updateMeta() {
   const bits = [];
   if (song.key) bits.push('Key ' + displayKey(song.key));
   if (song.bpm) bits.push(song.bpm + ' bpm');
+  if (song.capo) bits.push('<b class="warn">Capo ' + song.capo + '</b>');
+  if (song.chart) bits.push(song.synced ? '✓ synced' : 'not synced yet');
   if (view === 'tab' && song.tuning && song.tuning !== 'Standard') bits.push('<b class="warn">' + song.tuning + ' tuning</b>');
   $('songMeta').innerHTML = bits.join(' · ');
   $('trVal').textContent = 'Key ' + (opts.transpose > 0 ? '+' : opts.transpose < 0 ? '−' : '±') + Math.abs(opts.transpose);
@@ -116,6 +119,10 @@ function updateMeta() {
     $('capoApply').onclick = () => { opts.transpose -= capo.capo; toast(`Capo on fret ${capo.capo}`); savePrefs(); syncChips(); updateMeta(); };
   } else hint.classList.add('hidden');
   $('ampStyleName').textContent = '· ' + STYLES[currentStyle()].label;
+  $('bSync').classList.toggle('hidden', !(song.chart?.length && !song.audioBlob));
+  $('bSync').textContent = song.synced ? '🎧 Sync again' : '🎧 Sync to the music';
+  const q = songQuery();
+  $('bFindUG').classList.toggle('hidden', !q); $('bFindSS').classList.toggle('hidden', !q);
 }
 function displayKey(k) {
   const root = (k.root + opts.transpose + 120) % 12;
@@ -275,6 +282,15 @@ function drawLane(t) {
       ctx.beginPath(); ctx.moveTo(x(bt) + 0.5, 0); ctx.lineTo(x(bt) + 0.5, h); ctx.stroke();
     });
     ctx.globalAlpha = 1;
+  }
+  // song parts ([Verse], [Chorus] ...)
+  if (song.sections?.length) {
+    ctx.font = '800 11px system-ui, sans-serif'; ctx.textBaseline = 'alphabetic';
+    for (const sec of song.sections) {
+      if (sec.t == null || sec.t < t0 - 20 || sec.t > t1) continue;
+      ctx.fillStyle = C('--accent-2'); ctx.fillRect(x(sec.t), 0, 2, h);
+      ctx.fillText(sec.name.toUpperCase(), x(sec.t) + 5, 13);
+    }
   }
   if (view === 'chords') {
     for (const s of song.segments) {
@@ -453,25 +469,29 @@ async function decodeToMono(blob) {
   }
   return { samples: rendered.getChannelData(0).slice(), sr, duration: decoded.duration };
 }
-function runAnalysis(samples, sr) {
+function runAnalysis(samples, sr, chart) {
   return new Promise((resolve, reject) => {
     worker.onmessage = e => {
       if (e.data.progress !== undefined) $('busyBar').style.width = Math.round(20 + e.data.progress * 80) + '%';
       if (e.data.result) resolve(e.data.result);
       if (e.data.error) reject(new Error(e.data.error));
     };
-    worker.postMessage({ samples, sr }, [samples.buffer]);
+    worker.postMessage({ samples, sr, chart }, [samples.buffer]);
   });
 }
-async function addAudio(blob, title) {
-  busy(true, 'Listening to the song…', 'Reading the audio file');
+const newId = () => 'u' + Date.now().toString(36);
+const chordCount = segs => new Set(segs.filter(x => x.chord !== 'N').map(x => x.chord)).size;
+
+// keep = store the audio so it can be replayed; otherwise only chords / notes / tempo are kept
+async function addAudio(blob, title, { keep = true } = {}) {
+  busy(true, 'Listening to the song…', 'Reading the audio');
   try {
     const { samples, sr } = await decodeToMono(blob);
     $('busyBar').style.width = '20%';
     $('busyNote').textContent = 'Finding beats, chords and notes';
     const r = await runAnalysis(samples, sr);
     const s = {
-      id: 'u' + Date.now().toString(36), title, artist: '', source: 'audio', audioBlob: blob,
+      id: newId(), title, artist: '', source: keep ? 'audio' : 'listened', audioBlob: keep ? blob : undefined,
       bpm: r.bpm, beatsPerBar: 4, duration: r.duration, beats: r.beats, segments: r.segments,
       tab: r.tab, tuning: r.tuning, key: r.key, style: r.style, view: r.view, features: r.features,
       created: Date.now(), updated: Date.now(),
@@ -481,44 +501,124 @@ async function addAudio(blob, title) {
     busy(false);
     renderLists();
     openSong(s);
-    toast(r.view === 'tab' ? 'Mostly single notes found, showing Tab' : `Found ${new Set(r.segments.map(x => x.chord)).size - (r.segments.some(x => x.chord === 'N') ? 1 : 0)} different chords`);
+    toast(r.view === 'tab' ? 'Mostly single notes found, showing Tab' : `Found ${chordCount(r.segments)} different chords`);
   } catch (err) {
     busy(false);
     console.error(err);
-    toast('Could not read this file: ' + (err.message || err));
+    toast('Could not read the audio: ' + (err.message || err));
   }
 }
-$('fileInput').addEventListener('change', e => {
-  const f = e.target.files[0];
-  if (f) addAudio(f, f.name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' '));
-  e.target.value = '';
-});
 
-// recording
-let rec = null, recChunks = [], recStart = 0, recTimer = null;
-$('recordBtn').onclick = async () => {
+// Lines up the song's pasted chords with music heard through the mic.
+async function syncSong(target, blob) {
+  busy(true, 'Matching your chords to the music…', 'Reading the audio');
+  try {
+    const { samples, sr } = await decodeToMono(blob);
+    $('busyBar').style.width = '20%';
+    $('busyNote').textContent = 'Finding where each chord is played';
+    const r = await runAnalysis(samples, sr, target.chart);
+    const al = r.aligned;
+    busy(false);
+    if (!al || al.fit < 0.3 || al.to - al.from < 2) {
+      toast('That didn’t match the pasted chords. Same song? Same key / capo?');
+      return;
+    }
+    target.segments = al.segments.map(({ chord, ci, start, end, beats }) => ({ chord, ci, start, end, beats }));
+    target.beats = r.beats; target.bpm = r.bpm; target.duration = r.duration;
+    target.sections = (target.sections || []).map(sec => {
+      const sg = target.segments.find(x => x.ci >= sec.ci);
+      return { ...sec, t: sg ? sg.start : null };
+    }).filter(sec => sec.t !== null);
+    target.synced = { at: Date.now(), from: al.from, to: al.to, fit: al.fit };
+    target.key = r.key;
+    target.updated = Date.now();
+    await saveSong(target);
+    renderLists();
+    openSong(target);
+    toast(`Synced chords ${al.from + 1}–${al.to + 1} of ${target.chart.length} (${Math.round(al.fit * 100)}% clear match)`);
+  } catch (err) {
+    busy(false);
+    console.error(err);
+    toast('Could not sync: ' + (err.message || err));
+  }
+}
+
+// ---------- Listen (mic) with a live chord display ----------
+let rec = null, recChunks = [], recStart = 0, recTimer = null, recMode = null, liveTimer = null, liveCtx = null, recCancelled = false;
+async function startListening(mode) {
   if (rec) return;
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    recMode = mode; recCancelled = false;
     rec = new MediaRecorder(stream);
     recChunks = [];
     rec.ondataavailable = e => e.data.size && recChunks.push(e.data);
     rec.onstop = () => {
       stream.getTracks().forEach(t => t.stop());
       const blob = new Blob(recChunks, { type: rec.mimeType || 'audio/webm' });
-      rec = null; clearInterval(recTimer);
+      rec = null; clearInterval(recTimer); clearInterval(liveTimer); liveCtx?.close(); liveCtx = null;
       $('recordPanel').classList.add('hidden');
-      addAudio(blob, 'Recording ' + new Date().toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }));
+      if (recCancelled) return;
+      if ((Date.now() - recStart) < 6000) { toast('Too short. Listen to at least 20 seconds.'); return; }
+      if (recMode?.sync) syncSong(recMode.sync, blob);
+      else addAudio(blob, 'Heard ' + new Date().toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }), { keep: $('keepAudio').checked });
     };
     rec.start(1000);
     recStart = Date.now();
+    $('recLabel').textContent = mode?.sync ? `Syncing “${mode.sync.title}”` : 'Listening';
+    $('keepRow').classList.toggle('hidden', !!mode?.sync);
+    $('recHelp').textContent = mode?.sync
+      ? 'Play the song now (from the start if you can). Chordwell matches your pasted chords to what it hears.'
+      : 'Play the song on a speaker, another device, or through the LT25’s AUX input, and hold the phone near it. Whole song = best result.';
+    $('liveChord').textContent = '…';
     $('recordPanel').classList.remove('hidden');
+    $('recordPanel').scrollIntoView({ behavior: 'smooth', block: 'center' });
     recTimer = setInterval(() => { $('recTime').textContent = fmt((Date.now() - recStart) / 1000); }, 250);
-  } catch (err) { toast('Microphone not allowed'); rec = null; }
-};
+    // live chord guess from the mic spectrum
+    liveCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const an = liveCtx.createAnalyser();
+    an.fftSize = 16384; an.smoothingTimeConstant = 0.5;
+    liveCtx.createMediaStreamSource(stream).connect(an);
+    const db = new Float32Array(an.frequencyBinCount), mag = new Float32Array(an.frequencyBinCount);
+    let lastGuess = null;
+    liveTimer = setInterval(() => {
+      an.getFloatFrequencyData(db);
+      let loud = -Infinity;
+      for (let k = 0; k < db.length; k++) { mag[k] = Math.pow(10, db[k] / 20); if (db[k] > loud) loud = db[k]; }
+      const g = loud > -75 ? liveChord(mag, liveCtx.sampleRate / an.fftSize) : null;
+      const name = g && g.score > 0.72 ? g.name : null;
+      if (name && name === lastGuess) $('liveChord').textContent = name;
+      if (!g) $('liveChord').textContent = '…';
+      lastGuess = name;
+    }, 220);
+  } catch (err) { console.error(err); toast('Microphone not allowed'); rec = null; }
+}
+$('recordBtn').onclick = () => startListening(null);
 $('recStop').onclick = () => rec?.stop();
+$('recCancel').onclick = () => { recCancelled = true; rec?.stop(); };
 
-// typed chords / pasted tab
+// ---------- find chords online ----------
+const UG = q => `https://www.ultimate-guitar.com/search.php?search_type=title&value=${encodeURIComponent(q)}`;
+const SS = q => `https://www.songsterr.com/?pattern=${encodeURIComponent(q)}`;
+function openSearch(urlFn, q) {
+  q = (q || '').trim();
+  if (!q) { show('songs'); toast('Type a song name first'); $('findQ').focus(); return; }
+  window.open(urlFn(q), '_blank', 'noopener');
+}
+$('findUG').onclick = () => openSearch(UG, $('findQ').value);
+$('findSS').onclick = () => openSearch(SS, $('findQ').value);
+$('findQ').addEventListener('keydown', e => { if (e.key === 'Enter') openSearch(UG, $('findQ').value); });
+const songQuery = () => (song && !/^(Heard|Recording) /.test(song.title) ? [song.title, song.artist].filter(Boolean).join(' ') : '');
+$('bFindUG').onclick = () => openSearch(UG, songQuery());
+$('bFindSS').onclick = () => openSearch(SS, songQuery());
+$('bSync').onclick = () => {
+  if (!song?.chart?.length) return;
+  player.pause();
+  show('songs');
+  startListening({ sync: song });
+};
+
+// ---------- typed chords / pasted chord sheet / pasted tab ----------
 $('typeBtn').onclick = () => { $('typePanel').classList.toggle('hidden'); $('tTitle').focus(); };
 $('tCancel').onclick = () => $('typePanel').classList.add('hidden');
 $('tSave').onclick = async () => {
@@ -529,22 +629,31 @@ $('tSave').onclick = async () => {
   const tab = parseTextTab(text, bpm);
   let s;
   if (tab) {
-    s = { id: 'u' + Date.now().toString(36), title, source: 'typed', bpm, beatsPerBar: bpb, duration: tab.duration, beats: beatGrid(bpm, tab.duration), segments: [], tab: tab.notes, tuning: tab.tuning, key: null, style: 'lead', view: 'tab' };
+    s = { id: newId(), title, source: 'typed', bpm, beatsPerBar: bpb, duration: tab.duration, beats: beatGrid(bpm, tab.duration), segments: [], tab: tab.notes, tuning: tab.tuning, key: null, style: 'lead', view: 'tab' };
+  } else if (looksLikeChordSheet(text) && !/^\s*\|/.test(text)) {
+    const sh = parseChordSheet(text);
+    if (!sh) { toast('No chords found in that text'); return; }
+    // store the chords as they sound (shape + capo) and show the capo shapes by default
+    const sounding = sh.chords.map(c => (c === 'N' ? 'N' : displayChord(c, { transpose: sh.capo })));
+    const chart = { id: newId(), title, bpm, beatsPerBar: bpb, bars: sounding, sections: sh.sections, style: 'clean' };
+    s = { ...chartToSong(chart), builtin: false, source: 'sheet', chart: sounding, capo: sh.capo, prefs: { transpose: -sh.capo } };
+    s.key = null;
   } else {
     const bars = text.split(/[|\n]+/).map(b => b.trim()).filter(Boolean);
     const bad = bars.flatMap(b => b.split(/\s+/)).filter(c => !parseChord(c) && c !== 'N' && c !== '-' && c !== '%');
     if (!bars.length) { toast('Type some chords first'); return; }
     if (bad.length) { toast('Not a chord: ' + bad.slice(0, 3).join(', ')); return; }
-    const chart = { id: 'u' + Date.now().toString(36), title, bpm, beatsPerBar: bpb, bars: [], style: 'clean' };
+    const chart = { id: newId(), title, bpm, beatsPerBar: bpb, bars: [], style: 'clean' };
     let prev = 'N';
     for (const b of bars) { const v = b === '%' ? prev : b.replace(/\b-\b/g, 'N'); chart.bars.push(v); prev = v; }
-    s = { ...chartToSong(chart), builtin: false, source: 'typed', bars: chart.bars };
+    s = { ...chartToSong(chart), builtin: false, source: 'typed', bars: chart.bars, chart: chart.bars.flatMap(b => b.split(/\s+/)) };
     s.key = null;
   }
   s.created = s.updated = Date.now();
   await saveSong(s);
   $('typePanel').classList.add('hidden'); $('tText').value = ''; $('tTitle').value = '';
   renderLists(); openSong(s);
+  if (s.capo) toast(`Capo on fret ${s.capo}: showing the shapes from the sheet`);
 };
 function beatGrid(bpm, dur) { const b = 60 / bpm, out = []; for (let t = 0; t < dur; t += b) out.push(+t.toFixed(3)); return out; }
 
@@ -664,7 +773,7 @@ $('tnStrings').querySelectorAll('button').forEach(b => b.onclick = () => {
 });
 
 // ---------- start ----------
-window.__chordwell = { player, get song() { return song; }, openSong, addAudio, show };
+window.__chordwell = { player, get song() { return song; }, openSong, addAudio, show, syncSong };
 renderLists();
 requestAnimationFrame(frame);
 if ('serviceWorker' in navigator && location.protocol !== 'file:' && !location.hostname.match(/^(localhost|127\.)/)) {

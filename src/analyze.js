@@ -180,7 +180,7 @@ export function detectKey(chromaSum) {
 }
 
 // ---------- main entry ----------
-export function analyze(x, sr, onProgress = () => {}) {
+export function analyze(x, sr, onProgress = () => {}, opts = {}) {
   const duration = x.length / sr;
 
   // 1) Onset envelope (spectral flux) + timbre features, from a short STFT.
@@ -325,6 +325,9 @@ export function analyze(x, sr, onProgress = () => {}) {
     else segments.push({ chord: name, start: units[i].t0, end: units[i].t1, beats: 1 });
   }
 
+  // 5b) Line up a known chord list (pasted chord sheet) with the music.
+  const aligned = opts.chart?.length ? alignChart(opts.chart, units, em, S) : null;
+
   // 6) Key and style.
   const chromaSum = new Array(12).fill(0);
   units.forEach(u => { for (let p = 0; p < 12; p++) chromaSum[p] += u.c[p]; });
@@ -349,8 +352,97 @@ export function analyze(x, sr, onProgress = () => {}) {
   return {
     duration, bpm: Math.round(bpm), beats: beats.slice(0, -1), segments, key,
     features: { hfRatio: +hfRatio.toFixed(4), flatness: +flatness.toFixed(4), chordFit: +chordFit.toFixed(3), clearShare: +clearShare.toFixed(2), onsetsPerSec: +onsetsPerSec.toFixed(2) },
-    style, tab, tuning, view: tabLikely ? 'tab' : 'chords', debug: { rejected: notes.rejected },
+    style, tab, tuning, view: tabLikely ? 'tab' : 'chords', aligned, debug: { rejected: notes.rejected },
   };
+}
+
+// ---------- chart alignment: walk through the pasted chords in order, one or more beats each ----------
+const TEMPLATE_INDEX = new Map(TEMPLATES.map((t, i) => [t.name, i]));
+function alignChart(chart, units, em, S) {
+  const M = chart.length, n = units.length;
+  if (!n) return null;
+  const idx = chart.map(c => {
+    if (c === 'N') return S;
+    const p = parseChord(c);
+    return p ? TEMPLATE_INDEX.get(NOTE_NAMES[p.root] + p.type) ?? S : S;
+  });
+  // states: 0 = before the chart starts, 1..M = chart chord j-1, M+1 = after the end
+  const PRE = 0, POST = M + 1, NS = M + 2;
+  const outside = 0.55, startPen = 0.25, advPen = 0.04, skipPen = 0.5, endPen = 0.25;
+  const emis = (i, st) => (st === PRE || st === POST ? outside : em[i][idx[st - 1]]);
+  let dp = new Float64Array(NS).fill(-Infinity);
+  dp[PRE] = emis(0, PRE);
+  for (let j = 1; j <= M; j++) dp[j] = emis(0, j) - startPen;
+  const back = [];
+  for (let i = 1; i < n; i++) {
+    const nd = new Float64Array(NS).fill(-Infinity), bk = new Int32Array(NS);
+    nd[PRE] = dp[PRE] + emis(i, PRE); bk[PRE] = PRE;
+    for (let j = 1; j <= M; j++) {
+      let best = dp[j], from = j;                                      // stay
+      if (dp[j - 1] - advPen > best && j - 1 >= 1) { best = dp[j - 1] - advPen; from = j - 1; } // next chord
+      if (j >= 3 && dp[j - 2] - skipPen > best) { best = dp[j - 2] - skipPen; from = j - 2; }    // skipped one
+      if (dp[PRE] - startPen > best) { best = dp[PRE] - startPen; from = PRE; }              // song starts here
+      nd[j] = best + emis(i, j); bk[j] = from;
+    }
+    let bestEnd = dp[POST], fromEnd = POST;
+    for (let j = 1; j <= M; j++) if (dp[j] - endPen > bestEnd) { bestEnd = dp[j] - endPen; fromEnd = j; }
+    nd[POST] = bestEnd + emis(i, POST); bk[POST] = fromEnd;
+    back.push(bk); dp = nd;
+  }
+  let st = 0; for (let k = 1; k < NS; k++) if (dp[k] > dp[st]) st = k;
+  const path = new Int32Array(n);
+  for (let i = n - 1; i >= 0; i--) { path[i] = st; if (i > 0) st = back[i - 1][st]; }
+  const segments = [];
+  let matched = 0, inChart = 0;
+  for (let i = 0; i < n; i++) {
+    const s = path[i], ci = s >= 1 && s <= M ? s - 1 : -1;
+    const chord = ci >= 0 ? chart[ci] : 'N';
+    if (ci >= 0) { inChart++; if (em[i][idx[ci]] > 0.75) matched++; }
+    const last = segments[segments.length - 1];
+    if (last && last.ci === ci) { last.end = units[i].t1; last.beats++; }
+    else segments.push({ chord, ci, start: units[i].t0, end: units[i].t1, beats: 1 });
+  }
+  const used = segments.filter(s => s.ci >= 0);
+  return {
+    segments,
+    from: used.length ? used[0].ci : 0,
+    to: used.length ? used[used.length - 1].ci : 0,
+    fit: inChart ? +(matched / inChart).toFixed(2) : 0,
+  };
+}
+
+// ---------- live chord guess from one spectrum (for the Listen screen) ----------
+export function liveChord(mag, binHz) {
+  const semi = new Float64Array(128);
+  let peak = 0;
+  for (let k = 1; k < mag.length; k++) {
+    const f = k * binHz;
+    if (f < 60 || f > 2100) continue;
+    const midi = 69 + 12 * Math.log2(f / 440), near = Math.round(midi);
+    const v = mag[k] * Math.max(0, 1 - 2.5 * Math.abs(midi - near));
+    if (v > semi[near]) semi[near] = v;
+    if (v > peak) peak = v;
+  }
+  if (peak <= 0) return null;
+  const c = new Float64Array(12), b = new Float64Array(12);
+  for (let m = 36; m < 100; m++) {
+    let floor = 0, cnt = 0;
+    for (let j = m - 6; j <= m + 6; j++) if (j !== m) { floor += semi[j]; cnt++; }
+    const v = Math.max(0, semi[m] - 0.8 * floor / cnt);
+    if (!v) continue;
+    const val = Math.log(1 + 50 * v / peak);
+    if (m < 55) b[m % 12] += val;
+    if (m >= 43) c[m % 12] += val;
+  }
+  const norm = Math.hypot(...c), bsum = b.reduce((a, v) => a + v, 0);
+  if (norm < 1e-6) return null;
+  let best = null;
+  for (const t of TEMPLATES) {
+    let dot = 0; for (let p = 0; p < 12; p++) dot += c[p] * t.v[p];
+    const sc = dot / norm + t.prior + 0.2 * (bsum ? b[t.root] / bsum : 0);
+    if (!best || sc > best.score) best = { name: t.name, score: sc };
+  }
+  return best;
 }
 
 // ---------- single-note detection (onsets + YIN pitch) ----------

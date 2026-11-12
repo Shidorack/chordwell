@@ -78,10 +78,11 @@ export const SONGBOOK = [
 // Turns a chart into the same song shape that audio analysis produces.
 export function chartToSong(c) {
   const beat = 60 / c.bpm;
-  const segments = [], tabNotes = [];
+  const segments = [], tabNotes = [], barTimes = [];
   let t = 0;
   for (let r = 0; r < (c.repeat || 1); r++) {
     if (c.bars) for (const bar of c.bars) {
+      if (r === 0) barTimes.push(t);
       const parts = bar.split(/\s+/);
       const each = c.beatsPerBar / parts.length;
       for (const ch of parts) {
@@ -104,5 +105,6 @@ export function chartToSong(c) {
     bpm: c.bpm, beatsPerBar: c.beatsPerBar || 4, duration: t, beats: beatsArr,
     segments, tab, tuning: tab.tuning || 'Standard', key: null, style: c.style,
     view: c.view || 'chords', power: !!c.power,
+    sections: (c.sections || []).map(s => ({ name: s.name, ci: s.ci, t: barTimes[s.ci] ?? 0 })),
   };
 }

@@ -1,6 +1,7 @@
 // Detection accuracy test on synthetic guitar audio (Karplus-Strong plucked strings).
 // Run: node tools/test-analyze.mjs   (add --verbose to print the detected chords)
 import { analyze, parseChord, NOTE_NAMES } from '../src/analyze.js';
+import { parseChordSheet, looksLikeChordSheet } from '../src/sheet.js';
 
 const SR = 11025;
 const VERBOSE = process.argv.includes('--verbose');
@@ -164,5 +165,44 @@ for (const tc of tests) {
     }
   }
 }
+// ---- chord sheet parsing (invented lyrics) ----
+{
+  const sheet = [
+    'Capo 2', '', '[Intro]', 'G  D  Em  C', '', '[Verse 1]',
+    'G              D', 'Walking down the empty road tonight',
+    'Em                C', 'Counting all the lights along the way',
+    '[Chorus]', 'C    G/B   Am7   D   x2', 'Oh oh the morning comes', 'N.C.', '[ch]Bm[/ch]   F#m  Cadd9  Dsus4',
+  ].join('\n');
+  const r = parseChordSheet(sheet);
+  const want = 'G D Em C G D Em C C G Am7 D C G Am7 D N Bm F#m C Dsus4';
+  const got = r && r.chords.join(' ');
+  const secs = r?.sections.map(x => x.name + '@' + x.ci).join(',');
+  const pass = got === want && r.capo === 2 && secs === 'Intro@0,Verse 1@4,Chorus@8' && looksLikeChordSheet(sheet) && !looksLikeChordSheet('just some words\nand more words');
+  if (!pass) failed++;
+  console.log(`${pass ? 'PASS' : 'FAIL'}  Chord sheet parse: ${got}  capo=${r?.capo}  sections=${secs}`);
+}
+
+// ---- syncing a pasted chord list to music that starts in the middle ----
+{
+  const verse = ['C', 'G', 'Am', 'F'], chorus = ['F', 'G', 'C', 'Am'];
+  const progression = [...verse, ...verse, ...chorus, ...chorus, ...verse];
+  const full = makeChordSong({ prog: progression, bpm: 104, beatsPerChord: 4, loops: 1, distort: 2 });
+  const cut = 4.9; // listening started late, in bar 3
+  const buf = full.buf.slice(Math.round(cut * SR));
+  const truth = full.truth.map(t => ({ ...t, start: t.start - cut, end: t.end - cut })).filter(t => t.end > 0.3);
+  const res = analyze(buf, SR, () => {}, { chart: progression });
+  const acc = chordAccuracy({ segments: res.aligned.segments }, truth);
+  let posOk = 0, posAll = 0;
+  for (let t = 0.5; t < truth[truth.length - 1].end - 0.3; t += 0.1) {
+    const gi = full.truth.findIndex(g => t + cut >= g.start && t + cut < g.end);
+    const d = res.aligned.segments.find(sg => t >= sg.start && t < sg.end);
+    if (gi < 0) continue; posAll++; if (d && d.ci === gi) posOk++;
+  }
+  const pass = acc >= 0.9 && posOk / posAll >= 0.9;
+  if (!pass) failed++;
+  console.log(`${pass ? 'PASS' : 'FAIL'}  Sync pasted chords (starts mid-song): chords ${(acc * 100).toFixed(0)}%, chart position ${(posOk / posAll * 100).toFixed(0)}%, from #${res.aligned.from} to #${res.aligned.to}, fit ${res.aligned.fit}`);
+  if (VERBOSE) console.log('   ', res.aligned.segments.map(s => `${s.chord}#${s.ci}(${s.beats})`).join(' '));
+}
+
 console.log(failed ? `\n${failed} test(s) failed` : '\nAll tests passed');
 process.exit(failed ? 1 : 0);

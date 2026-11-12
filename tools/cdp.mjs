@@ -12,7 +12,7 @@ const EDGE = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
 const port = 9300 + Math.floor(Math.random() * 500);
 const prof = mkdtempSync(join(tmpdir(), 'chordwell-cdp-'));
 const proc = spawn(EDGE, ['--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${prof}`, '--no-first-run',
-  '--autoplay-policy=no-user-gesture-required', `--window-size=${w},${h}`, 'about:blank'], { stdio: 'ignore' });
+  '--autoplay-policy=no-user-gesture-required', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', `--window-size=${w},${h}`, 'about:blank'], { stdio: 'ignore' });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const kill = () => { try { proc.kill(); } catch {} };
 setTimeout(() => { console.log('TIMEOUT'); kill(); process.exit(2); }, 170000);

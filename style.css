@@ -98,7 +98,17 @@ main { max-width: 860px; margin: 0 auto; padding: 14px 16px 24px; }
 }
 .field textarea { font-family: ui-monospace, Consolas, monospace; font-size: 14px; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.rec-time { font-size: 40px; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--danger); }
+.listen-top { display: flex; align-items: center; gap: 10px; font-weight: 700; }
+.rec-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--danger); animation: pulse 1.2s infinite; }
+@keyframes pulse { 50% { opacity: .3; } }
+.rec-time { margin-left: auto; font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--danger); }
+.live-label { margin-top: 12px; font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.live-chord { font-size: 64px; font-weight: 800; line-height: 1.1; color: var(--accent); min-height: 72px; }
+.check { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; margin: 8px 0; }
+.check small { color: var(--muted); }
+.check input { margin-top: 3px; accent-color: var(--accent); }
+.chip.sync { border-color: var(--accent-2); color: var(--accent-2); }
+.find { margin-top: 14px; }
 
 /* song list */
 .song-list { display: grid; gap: 8px; }

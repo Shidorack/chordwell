@@ -28,14 +28,17 @@
           <input id="fileInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.ogg,.flac,.aac" hidden>
           <span class="ico">＋</span><span>Add a song<small>mp3, m4a, wav from your phone or PC</small></span>
         </label>
-        <button id="recordBtn" class="big-btn"><span class="ico rec">●</span><span>Record<small>play a song near the mic</small></span></button>
-        <button id="typeBtn" class="big-btn"><span class="ico">✎</span><span>Type / paste<small>chords or a text tab</small></span></button>
+        <button id="recordBtn" class="big-btn"><span class="ico rec">🎧</span><span>Listen<small>play Spotify, radio… on a speaker</small></span></button>
+        <button id="typeBtn" class="big-btn"><span class="ico">✎</span><span>Type / paste<small>chords, a chord sheet or a text tab</small></span></button>
       </div>
 
-      <div id="recordPanel" class="panel hidden">
-        <div class="rec-time" id="recTime">0:00</div>
-        <p class="muted">Recording… Play the song from a speaker near the phone.</p>
-        <button id="recStop" class="btn primary">Stop &amp; find chords</button>
+      <div id="recordPanel" class="panel hidden listen">
+        <div class="listen-top"><span class="rec-dot"></span><span id="recLabel">Listening</span><span class="rec-time" id="recTime">0:00</span></div>
+        <div class="live-label">Hearing now</div>
+        <div class="live-chord" id="liveChord">…</div>
+        <p class="muted small" id="recHelp">Play the song on a speaker, another device, or through the LT25’s AUX input, and hold the phone near it. Whole song = best result.</p>
+        <label class="check" id="keepRow"><input type="checkbox" id="keepAudio"> Keep the recording <small>(uses phone storage, lets you replay it)</small></label>
+        <div class="btn-row"><button id="recStop" class="btn primary">Stop &amp; find chords</button><button id="recCancel" class="btn">Cancel</button></div>
       </div>
 
       <div id="typePanel" class="panel hidden">
@@ -45,9 +48,15 @@
           <label class="field">Beats per bar <input id="tBpb" type="number" value="4" min="2" max="12"></label>
         </div>
         <label class="field">Chords or tab
-          <textarea id="tText" rows="8" spellcheck="false" placeholder="Chords, one bar each:&#10;| G | D | Em | C |&#10;&#10;or paste a text tab:&#10;e|-----0---|&#10;B|---1---1-|&#10;G|-2-------|&#10;D|---------|&#10;A|---------|&#10;E|---------|"></textarea>
+          <textarea id="tText" rows="8" spellcheck="false" placeholder="Paste a whole chord sheet (lyrics are skipped)&#10;[Verse]&#10;G        D&#10;some words here&#10;&#10;or chords, one bar each:&#10;| G | D | Em | C |&#10;&#10;or a text tab:&#10;e|-----0---|&#10;B|---1---1-|&#10;G|-2-------|&#10;D|---------|&#10;A|---------|&#10;E|---------|"></textarea>
         </label>
         <div class="btn-row"><button id="tSave" class="btn primary">Save song</button><button id="tCancel" class="btn">Cancel</button></div>
+      </div>
+
+      <div class="panel find">
+        <label class="field">Find chords &amp; tabs online <input id="findQ" placeholder="Song – Artist" enterkeyhint="search" autocomplete="off"></label>
+        <div class="btn-row"><button id="findUG" class="btn">Ultimate Guitar ↗</button><button id="findSS" class="btn">Songsterr ↗</button></div>
+        <p class="muted small">Copy the chords there, come back, tap <b>Type / paste</b> and paste them. Then use <b>🎧 Sync to the music</b>.</p>
       </div>
 
       <h2>My songs</h2>
@@ -125,6 +134,11 @@
         <div id="editPanel" class="panel hidden">
           <label class="field">Chord at this spot <input id="editInput" autocomplete="off" autocapitalize="characters"></label>
           <div class="btn-row"><button id="editSave" class="btn primary">Save</button><button id="editCancel" class="btn">Cancel</button></div>
+        </div>
+        <div class="chip-row" id="songTools">
+          <button id="bSync" class="chip sync">🎧 Sync to the music</button>
+          <button id="bFindUG" class="chip ghost">Ultimate Guitar ↗</button>
+          <button id="bFindSS" class="chip ghost">Songsterr ↗</button>
         </div>
         <button id="toAmp" class="amp-link">🎛 LT25 settings for this song <span id="ampStyleName"></span> ›</button>
       </div>
