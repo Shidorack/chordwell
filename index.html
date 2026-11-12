@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Chordwell</title>
+  <meta name="description" content="Turn songs into chords and tabs, practise with loop and slow-down, and get Fender Mustang LT25 amp settings.">
+  <meta name="theme-color" content="#16130f">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand"><span class="logo" aria-hidden="true"></span>Chordwell</div>
+    <div id="nowTitle" class="now-title"></div>
+  </header>
+
+  <main>
+    <!-- SONGS -->
+    <section id="view-songs" class="view active">
+      <div class="add-row">
+        <label class="big-btn primary">
+          <input id="fileInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.ogg,.flac,.aac" hidden>
+          <span class="ico">＋</span><span>Add a song<small>mp3, m4a, wav from your phone or PC</small></span>
+        </label>
+        <button id="recordBtn" class="big-btn"><span class="ico rec">●</span><span>Record<small>play a song near the mic</small></span></button>
+        <button id="typeBtn" class="big-btn"><span class="ico">✎</span><span>Type / paste<small>chords or a text tab</small></span></button>
+      </div>
+
+      <div id="recordPanel" class="panel hidden">
+        <div class="rec-time" id="recTime">0:00</div>
+        <p class="muted">Recording… Play the song from a speaker near the phone.</p>
+        <button id="recStop" class="btn primary">Stop &amp; find chords</button>
+      </div>
+
+      <div id="typePanel" class="panel hidden">
+        <label class="field">Title <input id="tTitle" placeholder="My song"></label>
+        <div class="field-row">
+          <label class="field">Tempo (bpm) <input id="tBpm" type="number" value="100" min="40" max="240"></label>
+          <label class="field">Beats per bar <input id="tBpb" type="number" value="4" min="2" max="12"></label>
+        </div>
+        <label class="field">Chords or tab
+          <textarea id="tText" rows="8" spellcheck="false" placeholder="Chords, one bar each:&#10;| G | D | Em | C |&#10;&#10;or paste a text tab:&#10;e|-----0---|&#10;B|---1---1-|&#10;G|-2-------|&#10;D|---------|&#10;A|---------|&#10;E|---------|"></textarea>
+        </label>
+        <div class="btn-row"><button id="tSave" class="btn primary">Save song</button><button id="tCancel" class="btn">Cancel</button></div>
+      </div>
+
+      <h2>My songs</h2>
+      <div id="mySongs" class="song-list"><p class="muted empty">No songs yet. Add an audio file, record, or type chords.</p></div>
+      <h2>Songbook <small class="muted">free songs &amp; practice riffs</small></h2>
+      <div id="songbook" class="song-list"></div>
+      <p class="muted foot">YouTube links can’t be used. Use a song file you own, or record it from a speaker.</p>
+    </section>
+
+    <!-- PLAY -->
+    <section id="view-play" class="view">
+      <div id="noSong" class="panel"><p>Pick a song in <b>Songs</b> first.</p></div>
+      <div id="playUI" class="hidden">
+        <div class="meta-row">
+          <div id="songMeta" class="muted"></div>
+          <div class="seg" role="tablist">
+            <button id="vChords" class="seg-btn active">Chords</button>
+            <button id="vTab" class="seg-btn">Tab</button>
+          </div>
+        </div>
+        <div id="capoHint" class="hint hidden"></div>
+
+        <div id="chordStage" class="stage">
+          <div class="now-card">
+            <div class="label">Now</div>
+            <div id="nowChord" class="chord-name">–</div>
+            <div id="nowDiagram" class="diagram"></div>
+          </div>
+          <div class="next-card">
+            <div class="label">Next</div>
+            <div id="nextChord" class="chord-name small">–</div>
+            <div id="nextDiagram" class="diagram small"></div>
+          </div>
+        </div>
+        <div id="tabStage" class="stage tab-stage hidden">
+          <div class="now-note"><span class="label">Now</span> <b id="nowNote">–</b></div>
+          <canvas id="fretboard" class="fretboard" height="120"></canvas>
+        </div>
+
+        <canvas id="lane" class="lane" height="150"></canvas>
+        <div class="time-row"><span id="tCur">0:00</span><input id="scrub" type="range" min="0" max="1000" value="0" aria-label="Position"><span id="tDur">0:00</span></div>
+
+        <div class="transport">
+          <button id="bStart" class="tbtn" title="Back to start">⏮</button>
+          <button id="bBack" class="tbtn" title="Back 5 s">−5</button>
+          <button id="bPlay" class="tbtn play" title="Play / pause">▶</button>
+          <button id="bFwd" class="tbtn" title="Forward 5 s">+5</button>
+          <button id="bWaitGo" class="tbtn hidden" title="Next chord">Next ➜</button>
+        </div>
+
+        <div class="ctl">
+          <label>Speed <b id="speedVal">100%</b></label>
+          <input id="speed" type="range" min="40" max="120" step="5" value="100">
+        </div>
+        <div class="chip-row">
+          <button id="bA" class="chip">A</button>
+          <button id="bB" class="chip">B</button>
+          <button id="bLoop" class="chip">Loop</button>
+          <button id="bLoopClear" class="chip ghost">Clear</button>
+          <span class="sep"></span>
+          <button id="bCount" class="chip">Count-in</button>
+          <button id="bWait" class="chip">Wait for me</button>
+          <button id="bMetro" class="chip">Metronome</button>
+          <button id="bBacking" class="chip on">Hear it</button>
+        </div>
+        <div class="chip-row" id="chordOpts">
+          <button id="bTrDown" class="chip">♭ −1</button>
+          <span id="trVal" class="chip-val">Key ±0</span>
+          <button id="bTrUp" class="chip">♯ +1</button>
+          <span class="sep"></span>
+          <button id="bSimple" class="chip">Simple chords</button>
+          <button id="bPower" class="chip">Power chords</button>
+          <button id="bEdit" class="chip ghost">✎ Fix chord</button>
+        </div>
+        <div id="editPanel" class="panel hidden">
+          <label class="field">Chord at this spot <input id="editInput" autocomplete="off" autocapitalize="characters"></label>
+          <div class="btn-row"><button id="editSave" class="btn primary">Save</button><button id="editCancel" class="btn">Cancel</button></div>
+        </div>
+        <button id="toAmp" class="amp-link">🎛 LT25 settings for this song <span id="ampStyleName"></span> ›</button>
+      </div>
+    </section>
+
+    <!-- AMP -->
+    <section id="view-amp" class="view">
+      <p class="muted">Pick the sound. <span id="styleGuess"></span></p>
+      <div id="styleChips" class="chip-row wrap"></div>
+      <div class="amp-panel">
+        <div class="lcd">
+          <div class="lcd-num" id="lcdNum">01</div>
+          <div class="lcd-name" id="lcdName">FENDER CLEAN</div>
+        </div>
+        <div class="alt" id="altPresets"></div>
+        <div class="knobs" id="knobs"></div>
+        <p class="muted small" id="masterNote"></p>
+        <div class="btn-row">
+          <button id="ampSave" class="btn primary">Save for this song</button>
+          <button id="ampReset" class="btn">Reset</button>
+        </div>
+        <ul class="tips" id="ampTips"></ul>
+        <details class="howto">
+          <summary>How to set this on the LT25</summary>
+          <ol id="howTo"></ol>
+        </details>
+        <details class="howto">
+          <summary>My amp has a different sound in this slot</summary>
+          <p class="muted small">If you saved or replaced presets on your amp, choose the slot that has this sound now.</p>
+          <select id="slotSelect"></select>
+        </details>
+      </div>
+    </section>
+
+    <!-- TUNER -->
+    <section id="view-tuner" class="view">
+      <div class="tuner">
+        <div class="tn-note" id="tnNote">–</div>
+        <div class="tn-meter"><div class="tn-center"></div><div class="tn-needle" id="tnNeedle"></div></div>
+        <div class="tn-info" id="tnInfo">Standard tuning E A D G B E</div>
+        <button id="tnBtn" class="btn primary">Start tuner</button>
+        <p class="muted small">Tip: the LT25 also has a tuner. Hold the TAP button.</p>
+        <div class="strings" id="tnStrings"></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="busy" class="busy hidden" role="status">
+    <div class="busy-box">
+      <div class="busy-title" id="busyTitle">Listening to the song…</div>
+      <div class="bar"><div id="busyBar"></div></div>
+      <div class="muted small" id="busyNote">Finding beats, chords and notes</div>
+    </div>
+  </div>
+  <div id="toast" class="toast hidden"></div>
+
+  <nav class="tabs">
+    <button data-view="songs" class="active"><span>♫</span>Songs</button>
+    <button data-view="play"><span>▶</span>Play</button>
+    <button data-view="amp"><span>🎛</span>Amp</button>
+    <button data-view="tuner"><span>◎</span>Tuner</button>
+  </nav>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

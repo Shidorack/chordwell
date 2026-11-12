@@ -116,6 +116,23 @@ const tests = [
   { name: 'Riff dist  low E 130bpm', kind: 'tab', song: makeRiffSong({ riff: [40, 40, 43, 40, 45, 40, 46, 45, 40, 40, 43, 40, 38, 40, null, null], bpm: 130, loops: 4, distort: 4 }), min: 0.7 },
 ];
 
+// --wav writes test songs as WAV files (for trying the app in a browser)
+if (process.argv.includes('--wav')) {
+  const { writeFileSync, mkdirSync } = await import('node:fs');
+  mkdirSync('test-audio', { recursive: true });
+  const toWav = buf => {
+    const b = Buffer.alloc(44 + buf.length * 2);
+    b.write('RIFF', 0); b.writeUInt32LE(36 + buf.length * 2, 4); b.write('WAVEfmt ', 8);
+    b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22); b.writeUInt32LE(SR, 24);
+    b.writeUInt32LE(SR * 2, 28); b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34); b.write('data', 36); b.writeUInt32LE(buf.length * 2, 40);
+    let peak = 0; for (const v of buf) peak = Math.max(peak, Math.abs(v));
+    buf.forEach((v, i) => b.writeInt16LE(Math.round(v / (peak || 1) * 0.9 * 32767), 44 + i * 2));
+    return b;
+  };
+  tests.forEach((tc, i) => writeFileSync(`test-audio/${i + 1}-${tc.name.split(/\s+/)[0].toLowerCase()}-${tc.kind}.wav`, toWav(tc.song.buf)));
+  console.log('WAV files written to test-audio/');
+}
+
 let failed = 0;
 for (const tc of tests) {
   const t0 = Date.now();
