@@ -109,6 +109,11 @@ main { max-width: 860px; margin: 0 auto; padding: 14px 16px 24px; }
 .check input { margin-top: 3px; accent-color: var(--accent); }
 .chip.sync { border-color: var(--accent-2); color: var(--accent-2); }
 .find { margin-top: 14px; }
+.install { margin: 0 0 14px; border-color: var(--accent); }
+.install-title { font-weight: 800; margin-bottom: 6px; }
+.install ol { padding-left: 20px; margin: 6px 0; }
+.install li { margin: 5px 0; }
+.kbd { display: inline-block; border: 1px solid var(--line); background: var(--surface-2); border-radius: 6px; padding: 0 6px; font-weight: 700; }
 
 /* song list */
 .song-list { display: grid; gap: 8px; }

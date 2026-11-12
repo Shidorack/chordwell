@@ -1,5 +1,5 @@
 // Offline support: cache the app files, then serve them from the cache (network updates in the background).
-const CACHE = 'chordwell-v2';
+const CACHE = 'chordwell-v3';
 const FILES = [
   './', 'index.html', 'style.css', 'manifest.json', 'icons/icon-192.png', 'icons/icon-512.png',
   'src/main.js', 'src/analyze.js', 'src/analyze.worker.js', 'src/chords.js', 'src/player.js',

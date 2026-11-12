@@ -772,6 +772,54 @@ $('tnStrings').querySelectorAll('button').forEach(b => b.onclick = () => {
   o.connect(g).connect(c.destination); o.start(); o.stop(c.currentTime + 2.1);
 });
 
+// ---------- install guide (home screen) ----------
+(function installGuide() {
+  const ua = navigator.userAgent;
+  const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  if (standalone || lsGet('chordwell.installDismissed', 0) > Date.now()) return;
+  const ios = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const android = /Android/.test(ua);
+  const inApp = /FBAN|FBAV|Instagram|WhatsApp|Snapchat|TikTok|musical_ly|Line\/|GSA\/|Twitter|Discord|Telegram/i.test(ua) || (android && /; wv\)/.test(ua));
+  const card = $('installCard'), text = $('installText');
+  let deferred = null;
+  const showCard = html => { text.innerHTML = html; card.classList.remove('hidden'); };
+  if (inApp) {
+    showCard(`You opened Chordwell <b>inside another app</b>, which can’t install it.<ol>
+      <li>Tap the <span class="kbd">⋮</span> or <span class="kbd">•••</span> menu of this screen.</li>
+      <li>Choose <b>“Open in browser”</b> (or “Open in ${ios ? 'Safari' : 'Chrome'}”).</li>
+      <li>Then come back to this box. It will show the next step.</li></ol>Or copy the link and paste it into ${ios ? 'Safari' : 'Chrome'}.`);
+    $('copyLink').classList.remove('hidden');
+  } else if (ios) {
+    showCard(`<ol>
+      <li>Tap the <b>Share</b> button <span class="kbd">⬆︎</span> (the square with the arrow, at the bottom in Safari${/CriOS/.test(ua) ? ', top right in Chrome' : ''}).</li>
+      <li>Scroll down and tap <b>“Add to Home Screen”</b>.</li>
+      <li>Tap <b>Add</b>. Then open Chordwell from your home screen.</li></ol>`);
+  } else if (android) {
+    showCard(`<ol>
+      <li>Tap the <span class="kbd">⋮</span> menu at the top right of Chrome.</li>
+      <li>Tap <b>“Add to Home screen”</b> or <b>“Install app”</b>.</li>
+      <li>Tap <b>Install</b>. Then open Chordwell from your home screen.</li></ol>`);
+  }
+  window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault(); deferred = e;
+    if (card.classList.contains('hidden')) showCard('Install Chordwell as an app: it gets its own icon and works offline.');
+    $('installBtn').classList.remove('hidden');
+  });
+  $('installBtn').onclick = async () => {
+    if (!deferred) return;
+    deferred.prompt();
+    const { outcome } = await deferred.userChoice;
+    deferred = null;
+    if (outcome === 'accepted') card.classList.add('hidden');
+  };
+  window.addEventListener('appinstalled', () => card.classList.add('hidden'));
+  $('copyLink').onclick = async () => {
+    try { await navigator.clipboard.writeText(location.origin + location.pathname); toast('Link copied'); }
+    catch { toast(location.origin + location.pathname); }
+  };
+  $('installClose').onclick = () => { card.classList.add('hidden'); lsSet('chordwell.installDismissed', Date.now() + 3 * 864e5); };
+})();
+
 // ---------- start ----------
 window.__chordwell = { player, get song() { return song; }, openSong, addAudio, show, syncSong };
 renderLists();

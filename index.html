@@ -23,6 +23,15 @@
   <main>
     <!-- SONGS -->
     <section id="view-songs" class="view active">
+      <div id="installCard" class="panel install hidden">
+        <div class="install-title">📲 Put Chordwell on your home screen</div>
+        <div id="installText"></div>
+        <div class="btn-row">
+          <button id="installBtn" class="btn primary hidden">Install app</button>
+          <button id="copyLink" class="btn hidden">Copy link</button>
+          <button id="installClose" class="btn">Later</button>
+        </div>
+      </div>
       <div class="add-row">
         <label class="big-btn primary">
           <input id="fileInput" type="file" accept="audio/*,.mp3,.m4a,.wav,.ogg,.flac,.aac" hidden>
